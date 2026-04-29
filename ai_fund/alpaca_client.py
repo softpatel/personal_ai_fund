@@ -40,7 +40,7 @@ def get_account() -> dict:
     return {
         "cash": float(a.cash),
         "equity": float(a.equity),
-        "buying_power": float(a.buying_power),
+        "buying_power": float(a.cash),
         "portfolio_value": float(a.portfolio_value),
     }
 

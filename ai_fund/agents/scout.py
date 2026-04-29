@@ -1,10 +1,10 @@
 """Scout agent.
 
-Screens the S&P 500 universe with separate value and swing filters,
-then picks the top 1–3 high-conviction candidates to hand off to the
-full fundamental + technical + PM pipeline.
+Searches for stocks matching a user-provided theme or description,
+screens them with value and swing filters, and hands the top 1–3
+candidates to the full fundamental + technical + PM pipeline.
 
-Uses Haiku — this is the cheap, high-volume pre-filter that protects
+Uses Haiku — this is the cheap, focused pre-filter that protects
 the cost of Opus downstream.
 """
 import json
@@ -17,8 +17,8 @@ NAME  = "scout"
 MODEL = config.MODEL_SCOUT
 
 SYSTEM_PROMPT = """You are a systematic equity scout at a multi-strategy fund. \
-Your job is to screen the S&P 500 and surface the top 1–3 ideas worth paying \
-a senior analyst's time to investigate.
+Your job is to screen a focused universe of stocks matching a user-specified theme \
+and surface the top 1–3 ideas worth a senior analyst's time to investigate.
 
 You run two parallel screens:
   1. VALUE screen  — looks for cheap, high-quality businesses (FCF yield, P/E, ROE, leverage)
@@ -27,9 +27,9 @@ You run two parallel screens:
 A ticker can qualify on both screens (tag it strategy: "both").
 
 # Required workflow
-1. Call get_screener_universe to fetch the current S&P 500 ticker list.
-2. Call screen_value with that list to get value candidates.
-3. Call screen_swing with that list to get swing candidates.
+1. Call search_stocks_by_theme with the user's description to get a focused ticker universe.
+2. Call screen_value with those tickers to get value candidates.
+3. Call screen_swing with those tickers to get swing candidates.
 4. Read both result sets. Identify overlap (tickers appearing in both).
 5. Pick the best 1–3 candidates total — not 1–3 from each screen.
    Prefer overlap candidates ("both") because they have two independent \
@@ -45,6 +45,8 @@ screen produced stronger signals.
 individual metrics (e.g. a strong FCF yield beats a marginal P/E improvement).
 - If fewer than 3 candidates cross the minimum thresholds, output fewer — \
 do NOT pad with weak ideas just to reach 3.
+- If search_stocks_by_theme returns fewer than 5 tickers, note this in \
+scout_note and still run screens on whatever is returned.
 
 # Output format
 Write 2–4 sentences summarising what the screens showed (which sectors \
@@ -81,8 +83,8 @@ def _parse_watchlist(text: str) -> dict | None:
         return None
 
 
-def run(verbose: bool = False) -> tuple[UUID, str, dict | None]:
-    """Run a Scout pass. Returns (memo_id, memo_text, watchlist_dict).
+def run(description: str, verbose: bool = False) -> tuple[UUID, str, dict | None]:
+    """Run a Scout pass for a given theme. Returns (memo_id, memo_text, watchlist_dict).
 
     Note: Scout runs are logged against a synthetic run_id that is created
     inside this function. The watchlist candidates are then passed back to
@@ -93,7 +95,8 @@ def run(verbose: bool = False) -> tuple[UUID, str, dict | None]:
     agent_id = db.upsert_agent(NAME, MODEL, SYSTEM_PROMPT)
 
     user_msg = (
-        "Run a full scout pass now. Fetch the S&P 500 universe, run both screens, "
+        f"Run a scout pass for this theme: \"{description}\". "
+        "Search for stocks matching that description, run both screens, "
         "pick the best 1–3 candidates, and emit the watchlist JSON."
     )
 

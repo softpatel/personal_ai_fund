@@ -132,14 +132,15 @@ async def get_run_detail(run_id: str):
 
 class AnalyzeRequest(BaseModel):
     ticker: str = ""
-    scout: bool = False
+    scout: str = ""
 
 
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     ticker = req.ticker.upper().strip()
-    if not req.scout and not ticker:
-        raise HTTPException(400, "Provide a ticker or set scout=true")
+    scout = req.scout.strip()
+    if not scout and not ticker:
+        raise HTTPException(400, "Provide a ticker or a scout theme description")
 
     job_id = str(_uuid.uuid4())
     queue: asyncio.Queue = asyncio.Queue()
@@ -147,8 +148,8 @@ async def analyze(req: AnalyzeRequest):
 
     async def run_pipeline() -> None:
         cmd = ["python3", "pipeline.py", "--verbose"]
-        if req.scout:
-            cmd.append("--scout")
+        if scout:
+            cmd += ["--scout", scout]
         else:
             cmd.append(ticker)
 

@@ -203,6 +203,46 @@ def get_screener_universe() -> dict:
     return {"tickers": tickers, "count": len(tickers)}
 
 
+def search_stocks_by_theme(query: str, max_results: int = 50) -> dict:
+    """Find equity tickers for a sector, industry, or theme.
+
+    Tries yf.Industry (precise, ~10-30 stocks), then yf.Sector (broader, ~50+ stocks),
+    then yf.Search as a fallback for specific company names or non-standard themes.
+    Returns tickers with a 'match_type' field indicating which method succeeded.
+    """
+    # Try industry first (most focused)
+    try:
+        result = yf.Industry(query)
+        df = result.top_companies
+        if df is not None and len(df) > 0:
+            tickers = list(df.index[:max_results])
+            return {"tickers": tickers, "count": len(tickers), "query": query, "match_type": "industry"}
+    except Exception:
+        pass
+
+    # Try sector (broader)
+    try:
+        result = yf.Sector(query)
+        df = result.top_companies
+        if df is not None and len(df) > 0:
+            tickers = list(df.index[:max_results])
+            return {"tickers": tickers, "count": len(tickers), "query": query, "match_type": "sector"}
+    except Exception:
+        pass
+
+    # Fall back to free-text search
+    try:
+        result = yf.Search(query, max_results=max_results)
+        tickers = [
+            q["symbol"]
+            for q in result.quotes
+            if q.get("quoteType", "").upper() == "EQUITY" and q.get("symbol")
+        ]
+        return {"tickers": tickers, "count": len(tickers), "query": query, "match_type": "search"}
+    except Exception as e:
+        return {"error": f"All lookup methods failed: {e}", "query": query}
+
+
 def screen_value(tickers: list[str], top_n: int = 15) -> dict:
     """Score S&P 500 tickers on value metrics and return top candidates.
 
@@ -212,32 +252,29 @@ def screen_value(tickers: list[str], top_n: int = 15) -> dict:
       Return on equity:             0–2 pts  (≥20% = 2, ≥10% = 1)
       Debt / equity:                0–2 pts  (≤50 = 2, ≤100 = 1)
 
-    Caps at the first `top_n` after scoring to keep runtime reasonable.
-    Skips tickers where yfinance returns no usable data.
+    Fetches the full universe in parallel (ThreadPoolExecutor) to avoid
+    the alphabetical bias from a sequential cap. Skips tickers where
+    yfinance returns no usable data.
     """
-    results = []
-    # Cap total info calls — fetching .info sequentially is the slow step.
-    # 100 tickers ≈ 60–90 seconds depending on Yahoo rate-limiting.
-    cap = min(len(tickers), 100)
-    for ticker in tickers[:cap]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _score_ticker(ticker: str) -> dict | None:
         try:
-            info = yf.Ticker(ticker).info
-            mc   = info.get("marketCap")
-            fcf  = info.get("freeCashflow")
-            fpe  = info.get("forwardPE")
-            roe  = info.get("returnOnEquity")   # decimal, e.g. 0.35 = 35%
-            de   = info.get("debtToEquity")     # percent, e.g. 120 = 120%
-            name = info.get("longName", ticker)
+            info   = yf.Ticker(ticker).info
+            mc     = info.get("marketCap")
+            fcf    = info.get("freeCashflow")
+            fpe    = info.get("forwardPE")
+            roe    = info.get("returnOnEquity")
+            de     = info.get("debtToEquity")
+            name   = info.get("longName", ticker)
             sector = info.get("sector", "Unknown")
 
-            # Need at least market cap and one more signal
             if not mc or mc <= 0:
-                continue
+                return None
 
             score = 0.0
             metrics: dict = {"market_cap": mc, "sector": sector}
 
-            # FCF yield
             if fcf is not None and mc:
                 fcf_yield = fcf / mc
                 metrics["fcf_yield_pct"] = round(fcf_yield * 100, 2)
@@ -247,7 +284,6 @@ def screen_value(tickers: list[str], top_n: int = 15) -> dict:
             else:
                 metrics["fcf_yield_pct"] = None
 
-            # Forward P/E
             if fpe and fpe > 0:
                 metrics["forward_pe"] = round(fpe, 1)
                 if   fpe <= 12: score += 3
@@ -256,7 +292,6 @@ def screen_value(tickers: list[str], top_n: int = 15) -> dict:
             else:
                 metrics["forward_pe"] = None
 
-            # ROE
             if roe is not None:
                 roe_pct = roe * 100
                 metrics["roe_pct"] = round(roe_pct, 1)
@@ -265,7 +300,6 @@ def screen_value(tickers: list[str], top_n: int = 15) -> dict:
             else:
                 metrics["roe_pct"] = None
 
-            # Debt / equity
             if de is not None:
                 metrics["debt_to_equity"] = round(de, 1)
                 if   de <= 50:  score += 2
@@ -274,20 +308,29 @@ def screen_value(tickers: list[str], top_n: int = 15) -> dict:
                 metrics["debt_to_equity"] = None
 
             if score > 0:
-                results.append({
-                    "ticker":       ticker,
-                    "name":         name,
-                    "value_score":  round(score, 2),
-                    "strategy":     "value",
-                    "metrics":      metrics,
-                })
+                return {
+                    "ticker":      ticker,
+                    "name":        name,
+                    "value_score": round(score, 2),
+                    "strategy":    "value",
+                    "metrics":     metrics,
+                }
         except Exception:
-            continue
+            pass
+        return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_score_ticker, t): t for t in tickers}
+        for fut in as_completed(futures):
+            result = fut.result()
+            if result is not None:
+                results.append(result)
 
     results.sort(key=lambda x: -x["value_score"])
     return {
         "candidates": results[:top_n],
-        "tickers_screened": cap,
+        "tickers_screened": len(tickers),
         "passing": len(results),
     }
 
@@ -307,8 +350,7 @@ def screen_swing(tickers: list[str], top_n: int = 15) -> dict:
     import pandas as pd
 
     # Batch download — much faster than looping .history() per ticker
-    cap    = min(len(tickers), 300)
-    subset = tickers[:cap]
+    subset = list(tickers)
     try:
         raw = yf.download(
             subset,
@@ -407,7 +449,7 @@ def screen_swing(tickers: list[str], top_n: int = 15) -> dict:
     results.sort(key=lambda x: -x["swing_score"])
     return {
         "candidates": results[:top_n],
-        "tickers_screened": cap,
+        "tickers_screened": len(subset),
         "passing": len(results),
     }
 
@@ -439,16 +481,42 @@ def _is_nan(v) -> bool:
 
 SCOUT_TOOLS = [
     {
-        "name": "get_screener_universe",
-        "description": "Fetch the current S&P 500 constituent ticker list from Wikipedia. Call this first to get the universe to pass to screen_value and screen_swing.",
-        "input_schema": {"type": "object", "properties": {}},
+        "name": "search_stocks_by_theme",
+        "description": (
+            "Return equity tickers for a sector, industry, or theme. "
+            "Tries yf.Industry (precise), then yf.Sector (broader), then free-text search as fallback. "
+            "Translate the user's theme into the best matching slug before calling. "
+            "Valid sector slugs: technology, financial-services, healthcare, consumer-cyclical, "
+            "communication-services, industrials, consumer-defensive, energy, basic-materials, "
+            "real-estate, utilities. "
+            "Example industry slugs: semiconductors, semiconductor-equipment-materials, "
+            "software-infrastructure, software-application, biotechnology, drug-manufacturers-general, "
+            "banks-diversified, banks-regional, oil-gas-integrated, solar, uranium, "
+            "specialty-chemicals, aerospace-defense, insurance-diversified. "
+            "Call this first to build the universe, then pass tickers to screen_value and screen_swing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Sector or industry slug, e.g. 'semiconductors' or 'technology'",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "Max tickers to return",
+                },
+            },
+            "required": ["query"],
+        },
     },
     {
         "name": "screen_value",
         "description": (
             "Score a list of tickers on value metrics (FCF yield, forward P/E, ROE, "
             "debt/equity) and return the top candidates ranked by composite score. "
-            "Pass the tickers list from get_screener_universe. Caps at 100 tickers."
+            "Pass the tickers list from search_stocks_by_theme."
         ),
         "input_schema": {
             "type": "object",
@@ -588,7 +656,7 @@ TOOL_IMPLS = {
     "get_financials":         lambda **kw: get_financials(**kw),
     "get_recent_news":        lambda **kw: get_recent_news(**kw),
     "get_price_history":      lambda **kw: get_price_history(**kw),
-    "get_screener_universe":  lambda **kw: get_screener_universe(),
+    "search_stocks_by_theme": lambda **kw: search_stocks_by_theme(**kw),
     "screen_value":           lambda **kw: screen_value(**kw),
     "screen_swing":           lambda **kw: screen_swing(**kw),
     "get_account":            lambda **kw: alpaca_client.get_account(),

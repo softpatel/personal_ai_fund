@@ -94,8 +94,8 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("ticker", nargs="?", type=str,
                        help="Stock ticker to analyse, e.g. AAPL")
-    group.add_argument("--scout", action="store_true",
-                       help="Run the Scout screener and pipe its candidates into the full pipeline")
+    group.add_argument("--scout", metavar="DESCRIPTION",
+                       help='Theme to scout, e.g. "AI semiconductor companies"')
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Print every tool call as it happens")
     args = parser.parse_args()
@@ -106,9 +106,10 @@ def main() -> None:
 
     else:
         # ── Scout mode ──────────────────────────────────────────────────────
-        print("[scout] Screening S&P 500 universe…")
-        print("[scout] Value screen fetches ~100 yf.info calls — expect 60–90 s.")
-        _, scout_text, watchlist = scout.run(verbose=args.verbose)
+        description = args.scout
+        print(f"[scout] Searching for stocks matching: \"{description}\"")
+        print("[scout] Running value and swing screens on theme results...")
+        _, scout_text, watchlist = scout.run(description=description, verbose=args.verbose)
 
         if not watchlist:
             print("[scout] ERROR: Scout did not return a parseable watchlist.", file=sys.stderr)

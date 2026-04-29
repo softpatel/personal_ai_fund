@@ -20,22 +20,36 @@ $ python pipeline.py AAPL --verbose
 [run abc123] Done.
 ```
 
-**Scout mode** — screens the S&P 500 for ideas, then runs the full pipeline on the top 1–3 candidates:
+**Scout mode** — you describe a theme, the Scout finds matching stocks, runs value and swing screens, and hands the top 1–3 candidates to the full pipeline:
 ```
-$ python pipeline.py --scout
-[scout] Screening S&P 500 universe…
-[scout] Value screen fetches ~100 yf.info calls — expect 60–90 s.
+$ python pipeline.py --scout "software companies benefiting from the AI transition"
+[scout] Searching for stocks matching: "software companies benefiting from the AI transition"
+[scout] Running value and swing screens on theme results...
 
-[scout] Both screens dominated by tech; one quality industrial name appeared in value.
+[scout] Both screens dominated by cloud infrastructure names; one payments company appeared in value.
 [scout] 3 candidate(s) selected:
 
   MSFT    [both ]  value=7.5 swing=6.2     Strong FCF yield at 4.1% with breakout setup
-  BRK-B   [value]  value=7.0               Trading at 13x forward earnings with low leverage
-  HD      [swing]  swing=6.8               Volume surge 1.8x average on bounce from support
+  SNOW    [swing]  swing=6.8               Volume surge 1.8x average on bounce from support
+  PYPL    [value]  value=7.0               Trading at 13x forward earnings with low leverage
 
 [run abc123] ── MSFT ──────────────────────────────
 ...
 ```
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| **AI / agents** | [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-python) — Claude Haiku, Sonnet, and Opus models |
+| **Market data** | [yfinance](https://github.com/ranaroussi/yfinance) — OHLCV, fundamentals, financials, news |
+| **Brokerage** | [Alpaca](https://alpaca.markets) — paper (and live) order execution via `alpaca-py` |
+| **Database** | PostgreSQL 14+ via [psycopg3](https://www.psycopg.org/psycopg3/) |
+| **API server** | [FastAPI](https://fastapi.tiangolo.com) + [Uvicorn](https://www.uvicorn.org) |
+| **Validation** | [Pydantic v2](https://docs.pydantic.dev) — structured agent output parsing |
+| **Runtime** | Python 3.11+ |
 
 ---
 
@@ -61,10 +75,14 @@ cp .env.example .env
 # required: ANTHROPIC_API_KEY, ALPACA_API_KEY, ALPACA_SECRET_KEY, DATABASE_URL
 # optional: ALPACA_PAPER (default: true — paper trading; set to false for live)
 
-# 5. Run the pipeline
+# 5. (Optional) Personalize your investment principles
+#    Edit ai_fund/investment_principles.py — plain-English preferences the PM weighs
+#    alongside its quantitative rules. Changes are picked up on the next run.
+
+# 6. Run the pipeline
 python pipeline.py AAPL
 python pipeline.py AAPL --verbose
-python pipeline.py --scout
+python pipeline.py --scout "software companies benefiting from the AI transition"
 
 # 6. Start the web dashboard (optional)
 uvicorn server:app --reload --port 8000
@@ -80,11 +98,12 @@ Each agent maps to a distinct role in a real fund. They are isolated by design: 
 ### Scout
 **Model:** Haiku · **File:** `ai_fund/agents/scout.py`
 
-The top of the funnel. Runs two independent screens over the S&P 500 universe and selects the 1–3 highest-conviction ideas to hand off downstream. Uses the cheapest model because it runs at high volume — protecting the cost of Opus further down the pipeline.
+The top of the funnel. You give it a theme or sector description in plain English; it finds a focused stock universe matching that description, runs two independent screens, and selects the 1–3 highest-conviction ideas to hand off downstream. Uses the cheapest model because it runs at high volume — protecting the cost of Opus further down the pipeline.
 
-**Value screen** scores on FCF yield, forward P/E, return on equity, and debt/equity ratio. Runs on ~100 tickers sequentially via `yf.Ticker().info`.
-
-**Swing screen** scores on price vs 50-day SMA, volume surge vs 20-day average, and proximity to 52-week high (breakout) or low (bounce). Runs on ~300 tickers via a single batched `yf.download()` call — fast.
+**Required workflow:**
+1. `search_stocks_by_theme` — translates your description into a focused ticker universe (e.g. "AI semiconductor companies" → NVDA, AMD, AVGO, …).
+2. **Value screen** — scores the results on FCF yield, forward P/E, return on equity, and debt/equity ratio.
+3. **Swing screen** — scores on price vs 50-day SMA, volume surge vs 20-day average, and proximity to 52-week high (breakout) or low (bounce).
 
 Tickers appearing in both screens are tagged `strategy: "both"` and get priority — two independent signals agreeing is stronger evidence than either alone. The Scout will return fewer than 3 candidates rather than pad results with weak ideas (minimum score threshold: 5/10 on either screen).
 
@@ -163,7 +182,7 @@ The technical score gates execution on a strong fundamental case — it cannot f
 ```
                      ┌──────────────────────────┐
                      │          Scout           │  Haiku
-                     │ S&P 500 value+swing scan │
+                     │  theme search + screens  │
                      └───────────┬──────────────┘
                                  │ watchlist (1–3 tickers)
                ┌─────────────────┼─────────────────┐
@@ -218,6 +237,8 @@ Everything is written to Postgres so you have a permanent audit trail.
 **Prompt versioning for attribution.** System prompts are hashed (SHA-256, first 16 chars) and stored in the `agents` table. When you iterate on a prompt, the next run automatically creates a new agent row. You can join `agents → memos → decisions → trades` to answer: "did this prompt change improve returns?"
 
 **Model tiers by task complexity.** Scout → Haiku (high volume, structured scoring), Technical → Sonnet (pattern reasoning over pre-computed numbers), Fundamental + PM → Opus (open-ended judgment, deep prose). Swapping models is a one-line change in `config.py`.
+
+**Personalized investment principles.** `ai_fund/investment_principles.py` is a plain-English file that defines your investor profile: goal, risk tolerance, preferred sectors, market-cap preferences, ESG constraints, and behavioral guardrails. The Portfolio Manager receives this as part of its system context and weighs it alongside its quantitative rules. Edit the file directly — no restart required, changes are picked up on the next run.
 
 ---
 
