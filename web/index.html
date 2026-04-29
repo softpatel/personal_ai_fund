@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Fund Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { mono: ['JetBrains Mono', 'Fira Code', 'monospace'] },
+          colors: {
+            surface: { 950: '#05070d', 900: '#0d1117', 800: '#161b27', 700: '#1e2738', 600: '#2a3347' },
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; height: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #2a3347; border-radius: 2px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #3a4a60; }
+    .tab-active { border-bottom: 2px solid #3b82f6; color: #93c5fd; }
+    .tab-inactive { border-bottom: 2px solid transparent; color: #6b7280; }
+    .tab-inactive:hover { color: #9ca3af; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+    .terminal-line { white-space: pre-wrap; word-break: break-all; }
+    .memo-content { white-space: pre-wrap; line-height: 1.7; }
+    .fade-in { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    /* Markdown prose styles for memo content */
+    .memo-md h1, .memo-md h2, .memo-md h3, .memo-md h4 { font-weight: 600; color: #e5e7eb; margin: 1em 0 0.4em; line-height: 1.3; }
+    .memo-md h1 { font-size: 1rem; }
+    .memo-md h2 { font-size: 0.9rem; border-bottom: 1px solid #1e2738; padding-bottom: 0.3em; }
+    .memo-md h3 { font-size: 0.8rem; color: #93c5fd; }
+    .memo-md h4 { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+    .memo-md p { margin: 0.5em 0; color: #9ca3af; line-height: 1.7; }
+    .memo-md ul, .memo-md ol { margin: 0.5em 0 0.5em 1.2em; color: #9ca3af; line-height: 1.7; }
+    .memo-md ul { list-style: disc; }
+    .memo-md ol { list-style: decimal; }
+    .memo-md li { margin: 0.2em 0; }
+    .memo-md strong { color: #e5e7eb; font-weight: 600; }
+    .memo-md em { color: #d1d5db; font-style: italic; }
+    .memo-md code { background: #1e2738; color: #7dd3fc; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.8em; font-family: 'JetBrains Mono', monospace; }
+    .memo-md pre { background: #0d1117; border: 1px solid #1e2738; border-radius: 6px; padding: 0.75em 1em; overflow-x: auto; margin: 0.5em 0; }
+    .memo-md pre code { background: none; padding: 0; }
+    .memo-md blockquote { border-left: 3px solid #2a3347; margin: 0.5em 0; padding: 0.3em 0.8em; color: #6b7280; font-style: italic; }
+    .memo-md hr { border: none; border-top: 1px solid #1e2738; margin: 0.75em 0; }
+    .memo-md a { color: #60a5fa; text-decoration: underline; text-underline-offset: 2px; }
+    .memo-md table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin: 0.5em 0; }
+    .memo-md th { background: #161b27; color: #9ca3af; text-align: left; padding: 0.4em 0.75em; border-bottom: 1px solid #1e2738; }
+    .memo-md td { padding: 0.35em 0.75em; border-bottom: 1px solid #0d1117; color: #9ca3af; }
+  </style>
+</head>
+<body class="bg-surface-950 text-gray-100 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-surface-900 border-b border-surface-700 px-6 py-3 flex items-center justify-between sticky top-0 z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-sm font-bold">A</div>
+      <span class="font-semibold text-gray-100 tracking-tight">AI Fund</span>
+      <span class="text-xs px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-400 font-medium mono">PAPER</span>
+    </div>
+    <div id="account-cards" class="flex items-center gap-5">
+      <div class="text-right">
+        <div class="text-xs text-gray-500 uppercase tracking-wide">Portfolio</div>
+        <div id="acct-portfolio" class="mono text-sm font-semibold text-gray-200">—</div>
+      </div>
+      <div class="w-px h-8 bg-surface-700"></div>
+      <div class="text-right">
+        <div class="text-xs text-gray-500 uppercase tracking-wide">Cash</div>
+        <div id="acct-cash" class="mono text-sm font-semibold text-gray-200">—</div>
+      </div>
+      <div class="w-px h-8 bg-surface-700"></div>
+      <div class="text-right">
+        <div class="text-xs text-gray-500 uppercase tracking-wide">Buying Power</div>
+        <div id="acct-bp" class="mono text-sm font-semibold text-gray-200">—</div>
+      </div>
+      <button onclick="refreshAll()" class="ml-3 p-1.5 rounded-md text-gray-500 hover:text-gray-300 hover:bg-surface-700 transition-colors" title="Refresh">
+        <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="bg-surface-900 border-b border-surface-700 px-6 flex gap-1">
+    <button class="tab-btn tab-active px-4 py-3 text-sm font-medium transition-colors" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn tab-inactive px-4 py-3 text-sm font-medium transition-colors" data-tab="analyze">Analyze</button>
+    <button class="tab-btn tab-inactive px-4 py-3 text-sm font-medium transition-colors" data-tab="history">History</button>
+  </nav>
+
+  <!-- Main content -->
+  <main class="p-6 max-w-screen-xl mx-auto">
+
+    <!-- ── DASHBOARD TAB ── -->
+    <div id="tab-dashboard" class="tab-panel">
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+        <!-- Positions -->
+        <div class="xl:col-span-2">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest">Positions</h2>
+            <span id="positions-count" class="text-xs text-gray-600">—</span>
+          </div>
+          <div class="bg-surface-900 rounded-xl border border-surface-700 overflow-hidden">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-surface-700 text-xs text-gray-500 uppercase tracking-wide">
+                  <th class="text-left px-4 py-3 font-medium">Ticker</th>
+                  <th class="text-right px-4 py-3 font-medium">Qty</th>
+                  <th class="text-right px-4 py-3 font-medium">Avg Entry</th>
+                  <th class="text-right px-4 py-3 font-medium">Mkt Value</th>
+                  <th class="text-right px-4 py-3 font-medium">Unr. P&L</th>
+                  <th class="text-right px-4 py-3 font-medium">Return</th>
+                </tr>
+              </thead>
+              <tbody id="positions-body">
+                <tr>
+                  <td colspan="6" class="px-4 py-8 text-center text-gray-600 text-sm">Loading positions…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest">Recent Activity</h2>
+          </div>
+          <div id="recent-activity" class="space-y-2">
+            <div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-gray-600 text-sm text-center">Loading…</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── ANALYZE TAB ── -->
+    <div id="tab-analyze" class="tab-panel hidden">
+      <div class="max-w-3xl mx-auto space-y-6">
+
+        <!-- Input form -->
+        <div class="bg-surface-900 rounded-xl border border-surface-700 p-6">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-5">Run Analysis Pipeline</h2>
+          <div class="flex gap-3 items-end flex-wrap">
+            <div class="flex-1 min-w-[180px]">
+              <label class="text-xs text-gray-500 uppercase tracking-wide mb-1.5 block">Ticker Symbol</label>
+              <input
+                id="ticker-input"
+                type="text"
+                placeholder="AAPL"
+                maxlength="10"
+                class="w-full bg-surface-800 border border-surface-600 rounded-lg px-3 py-2.5 text-gray-100 mono text-sm uppercase placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors"
+              />
+            </div>
+            <button
+              id="analyze-btn"
+              onclick="startAnalysis()"
+              class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-surface-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Run Pipeline
+            </button>
+          </div>
+          <div class="flex mt-2 items-center gap-2 pb-0.5">
+            <input type="checkbox" id="scout-mode" class="w-4 h-4 rounded accent-blue-500" />
+            <label for="scout-mode" class="text-sm text-gray-400 select-none cursor-pointer">Scout S&amp;P 500</label>
+          </div>
+          <p class="mt-3 text-xs text-gray-600">Scout mode screens the full S&amp;P 500 — ticker input is ignored. Single ticker runs Fundamental → Technical → Portfolio Manager.</p>
+        </div>
+
+        <!-- Stream output -->
+        <div id="stream-panel" class="hidden bg-surface-900 rounded-xl border border-surface-700 overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-surface-700">
+            <div class="flex items-center gap-2">
+              <div id="stream-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></div>
+              <span id="stream-status-label" class="text-xs font-medium text-gray-400">Running…</span>
+            </div>
+            <button onclick="clearStream()" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Clear</button>
+          </div>
+          <div id="stream-output" class="mono text-xs text-gray-300 p-4 h-96 overflow-y-auto scrollbar-thin bg-surface-950/60 space-y-0.5"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── HISTORY TAB ── -->
+    <div id="tab-history" class="tab-panel hidden">
+      <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+
+        <!-- Runs list -->
+        <div class="xl:col-span-2">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest">Pipeline Runs</h2>
+            <button onclick="loadRuns()" class="text-xs text-blue-500 hover:text-blue-400">Refresh</button>
+          </div>
+          <div id="runs-list" class="space-y-2">
+            <div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-gray-600 text-sm text-center">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Run detail -->
+        <div class="xl:col-span-3">
+          <div id="run-detail-empty" class="flex items-center justify-center h-48 text-gray-600 text-sm border border-dashed border-surface-700 rounded-xl">
+            Select a run to view memos and decisions
+          </div>
+          <div id="run-detail" class="hidden space-y-4 fade-in"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // ─── State ───────────────────────────────────────────────────────────────
+    let activeTab = 'dashboard';
+    let activeRunId = null;
+    let eventSource = null;
+    let refreshTimer = null;
+
+    // ─── Utilities ────────────────────────────────────────────────────────────
+    const $ = id => document.getElementById(id);
+    const fmt$ = n => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtN = n => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtPct = n => n == null ? '—' : (n >= 0 ? '+' : '') + (n * 100).toFixed(2) + '%';
+    const plClass = v => v == null ? 'text-gray-400' : (v >= 0 ? 'text-emerald-400' : 'text-red-400');
+    const actionBadge = a => {
+      const cls = a === 'BUY' ? 'bg-emerald-900/60 text-emerald-400' : a === 'SELL' ? 'bg-red-900/60 text-red-400' : 'bg-amber-900/60 text-amber-400';
+      return `<span class="inline-flex px-2 py-0.5 rounded text-xs font-semibold mono ${cls}">${a}</span>`;
+    };
+    const agentBadge = name => {
+      const map = {
+        'scout':               'bg-sky-900/60 text-sky-400',
+        'fundamental_analyst': 'bg-violet-900/60 text-violet-400',
+        'technical_analyst':   'bg-cyan-900/60 text-cyan-400',
+        'portfolio_manager':   'bg-amber-900/60 text-amber-400',
+      };
+      const cls = map[name] || 'bg-gray-800 text-gray-400';
+      const label = { scout: 'Scout', fundamental_analyst: 'Fundamental', technical_analyst: 'Technical', portfolio_manager: 'Portfolio Mgr' }[name] || name;
+      return `<span class="inline-flex px-2 py-0.5 rounded text-xs font-medium ${cls}">${label}</span>`;
+    };
+    const statusBadge = s => {
+      const cls = s === 'completed' ? 'text-emerald-400' : s === 'failed' ? 'text-red-400' : 'text-amber-400';
+      return `<span class="mono text-xs ${cls}">${s}</span>`;
+    };
+    const timeAgo = iso => {
+      if (!iso) return '—';
+      const diff = (Date.now() - new Date(iso)) / 1000;
+      if (diff < 60) return Math.round(diff) + 's ago';
+      if (diff < 3600) return Math.round(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+      return Math.round(diff / 86400) + 'd ago';
+    };
+
+    // ─── Tab switching ────────────────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.classList.toggle('tab-active', b === btn);
+          b.classList.toggle('tab-inactive', b !== btn);
+        });
+        document.querySelectorAll('.tab-panel').forEach(p => {
+          p.classList.toggle('hidden', p.id !== 'tab-' + activeTab);
+        });
+        if (activeTab === 'history') loadRuns();
+      });
+    });
+
+    // ─── Account ──────────────────────────────────────────────────────────────
+    async function loadAccount() {
+      try {
+        const a = await fetch('/api/account').then(r => r.json());
+        $('acct-portfolio').textContent = fmt$(a.portfolio_value);
+        $('acct-cash').textContent = fmt$(a.cash);
+        $('acct-bp').textContent = fmt$(a.buying_power);
+      } catch {
+        $('acct-portfolio').textContent = 'Error';
+      }
+    }
+
+    // ─── Positions ────────────────────────────────────────────────────────────
+    async function loadPositions() {
+      const body = $('positions-body');
+      try {
+        const positions = await fetch('/api/positions').then(r => r.json());
+        $('positions-count').textContent = positions.length + ' open';
+        if (positions.length === 0) {
+          body.innerHTML = `<tr><td colspan="6" class="px-4 py-10 text-center text-gray-600 text-sm">No open positions</td></tr>`;
+          return;
+        }
+        body.innerHTML = positions.map(p => `
+          <tr class="border-t border-surface-800 hover:bg-surface-800/40 transition-colors">
+            <td class="px-4 py-3">
+              <span class="mono font-semibold text-gray-100">${p.ticker}</span>
+            </td>
+            <td class="px-4 py-3 text-right mono text-gray-300">${fmtN(p.qty)}</td>
+            <td class="px-4 py-3 text-right mono text-gray-400">${fmt$(p.avg_entry_price)}</td>
+            <td class="px-4 py-3 text-right mono text-gray-300">${fmt$(p.market_value)}</td>
+            <td class="px-4 py-3 text-right mono font-medium ${plClass(p.unrealized_pl)}">${fmt$(p.unrealized_pl)}</td>
+            <td class="px-4 py-3 text-right mono font-medium ${plClass(p.unrealized_plpc)}">${fmtPct(p.unrealized_plpc)}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        body.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-red-500 text-sm">Failed to load positions</td></tr>`;
+      }
+    }
+
+    // ─── Recent Activity ──────────────────────────────────────────────────────
+    async function loadRecentActivity() {
+      const el = $('recent-activity');
+      try {
+        const runs = await fetch('/api/runs?limit=8').then(r => r.json());
+        if (runs.length === 0) {
+          el.innerHTML = `<div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-gray-600 text-sm text-center">No runs yet</div>`;
+          return;
+        }
+        el.innerHTML = runs.map(r => {
+          const tickers = (r.tickers || []).join(', ') || '—';
+          const actions = (r.actions || []).map(actionBadge).join(' ') || '';
+          return `
+            <div class="bg-surface-900 rounded-xl border border-surface-700 p-3 hover:border-surface-600 cursor-pointer transition-colors"
+                 onclick="openRunInHistory('${r.id}')">
+              <div class="flex items-start justify-between gap-2 mb-1">
+                <span class="mono font-semibold text-sm text-gray-200">${r.triggered_by || tickers}</span>
+                ${statusBadge(r.status)}
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex gap-1">${actions}</div>
+                <span class="text-xs text-gray-600">${timeAgo(r.started_at)}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch {
+        el.innerHTML = `<div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-red-500 text-sm text-center">Failed to load</div>`;
+      }
+    }
+
+    function openRunInHistory(runId) {
+      // Switch to history tab and load the run
+      document.querySelector('[data-tab="history"]').click();
+      loadRunDetail(runId);
+    }
+
+    // ─── Runs list ────────────────────────────────────────────────────────────
+    async function loadRuns() {
+      const el = $('runs-list');
+      el.innerHTML = `<div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-gray-600 text-sm text-center">Loading…</div>`;
+      try {
+        const runs = await fetch('/api/runs').then(r => r.json());
+        if (runs.length === 0) {
+          el.innerHTML = `<div class="bg-surface-900 rounded-xl border border-surface-700 p-4 text-gray-600 text-sm text-center">No runs yet. Run the pipeline from the Analyze tab.</div>`;
+          return;
+        }
+        el.innerHTML = runs.map(r => {
+          const tickers = (r.tickers || []).join(', ') || '—';
+          const actions = (r.actions || []).map(actionBadge).join(' ') || '';
+          return `
+            <div class="run-row bg-surface-900 rounded-xl border transition-colors cursor-pointer p-3 ${activeRunId === r.id ? 'border-blue-600' : 'border-surface-700 hover:border-surface-600'}"
+                 data-run-id="${r.id}"
+                 onclick="loadRunDetail('${r.id}')">
+              <div class="flex items-start justify-between gap-2 mb-1">
+                <div>
+                  <span class="mono font-semibold text-sm text-gray-200">${tickers}</span>
+                  <span class="ml-2 text-xs text-gray-600">${r.triggered_by || ''}</span>
+                </div>
+                ${statusBadge(r.status)}
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex gap-1">${actions}</div>
+                <span class="text-xs text-gray-600">${timeAgo(r.started_at)}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch {
+        el.innerHTML = `<div class="text-red-500 text-sm text-center p-4">Failed to load runs</div>`;
+      }
+    }
+
+    // ─── Run detail ───────────────────────────────────────────────────────────
+    async function loadRunDetail(runId) {
+      activeRunId = runId;
+      // Highlight active row
+      document.querySelectorAll('.run-row').forEach(el => {
+        el.classList.toggle('border-blue-600', el.dataset.runId === runId);
+        el.classList.toggle('border-surface-700', el.dataset.runId !== runId);
+      });
+
+      $('run-detail-empty').classList.add('hidden');
+      const detail = $('run-detail');
+      detail.classList.remove('hidden');
+      detail.innerHTML = `<div class="text-gray-600 text-sm text-center py-10">Loading…</div>`;
+
+      try {
+        const data = await fetch(`/api/runs/${runId}`).then(r => r.json());
+        const { memos, decisions } = data;
+
+        // Decisions summary
+        let decisionsHtml = '';
+        if (decisions.length > 0) {
+          decisionsHtml = `
+            <div class="bg-surface-900 rounded-xl border border-surface-700 p-4">
+              <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Decisions</h3>
+              <div class="space-y-3">
+                ${decisions.map(d => `
+                  <div class="flex items-start justify-between gap-4 py-2 border-t border-surface-800 first:border-0 first:pt-0">
+                    <div>
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="mono font-bold text-gray-100">${d.ticker}</span>
+                        ${actionBadge(d.action)}
+                        ${d.qty ? `<span class="mono text-xs text-gray-400">${d.qty} shares</span>` : ''}
+                        ${d.target_price ? `<span class="mono text-xs text-gray-500">@ ${fmt$(d.target_price)}</span>` : ''}
+                      </div>
+                      ${d.rationale ? `<p class="text-xs text-gray-400 leading-relaxed">${escHtml(d.rationale)}</p>` : ''}
+                    </div>
+                    <div class="text-right shrink-0">
+                      ${d.trade_status ? `<div class="text-xs mono text-emerald-400">${d.trade_status}</div>` : ''}
+                      ${d.alpaca_order_id ? `<div class="text-xs text-gray-600 mono truncate max-w-[120px]" title="${d.alpaca_order_id}">${d.alpaca_order_id.slice(0, 8)}…</div>` : ''}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        // Group memos by ticker
+        const byTicker = {};
+        memos.forEach(m => {
+          if (!byTicker[m.ticker]) byTicker[m.ticker] = [];
+          byTicker[m.ticker].push(m);
+        });
+
+        const memosHtml = Object.entries(byTicker).map(([ticker, tickerMemos]) => {
+          // Agent tabs
+          const tabIds = tickerMemos.map((_, i) => `memo-${runId.slice(0,8)}-${ticker}-${i}`);
+          const tabs = tickerMemos.map((m, i) => `
+            <button class="memo-tab px-3 py-1.5 text-xs rounded-md transition-colors ${i === 0 ? 'bg-surface-700 text-gray-200' : 'text-gray-500 hover:text-gray-300'}"
+                    data-memo-target="${tabIds[i]}"
+                    onclick="switchMemoTab(this, '${ticker}', '${runId.slice(0,8)}')">
+              ${agentBadge(m.agent_name)}
+            </button>
+          `).join('');
+
+          const panels = tickerMemos.map((m, i) => {
+            let structuredHtml = '';
+            if (m.structured_summary) {
+              const s = typeof m.structured_summary === 'string' ? JSON.parse(m.structured_summary) : m.structured_summary;
+              const pairs = Object.entries(s).map(([k, v]) =>
+                `<div class="flex gap-2"><span class="text-gray-600 shrink-0">${escHtml(k)}:</span><span class="text-gray-300 mono">${escHtml(JSON.stringify(v))}</span></div>`
+              ).join('');
+              structuredHtml = `
+                <div class="mt-3 pt-3 border-t border-surface-700">
+                  <div class="text-xs text-gray-600 mb-1.5 uppercase tracking-wide">Structured Output</div>
+                  <div class="text-xs space-y-0.5">${pairs}</div>
+                </div>
+              `;
+            }
+            return `
+              <div id="${tabIds[i]}" class="memo-panel ${i !== 0 ? 'hidden' : ''}">
+                <div class="text-xs memo-md">${marked.parse(m.content || '')}</div>
+                ${structuredHtml}
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="bg-surface-900 rounded-xl border border-surface-700 overflow-hidden">
+              <div class="flex items-center justify-between px-4 py-3 border-b border-surface-700 bg-surface-800/40">
+                <span class="mono font-bold text-gray-100">${ticker}</span>
+                <div class="flex gap-1">${tabs}</div>
+              </div>
+              <div class="p-4 max-h-96 overflow-y-auto scrollbar-thin">${panels}</div>
+            </div>
+          `;
+        }).join('');
+
+        detail.innerHTML = `<div class="fade-in space-y-4">${decisionsHtml}${memosHtml}</div>`;
+      } catch (e) {
+        detail.innerHTML = `<div class="text-red-500 text-sm text-center py-10">Failed to load run detail</div>`;
+      }
+    }
+
+    function switchMemoTab(btn, ticker, runPrefix) {
+      const container = btn.closest('.bg-surface-900');
+      container.querySelectorAll('.memo-tab').forEach(t => {
+        t.classList.toggle('bg-surface-700', t === btn);
+        t.classList.toggle('text-gray-200', t === btn);
+        t.classList.toggle('text-gray-500', t !== btn);
+      });
+      const targetId = btn.dataset.memoTarget;
+      container.querySelectorAll('.memo-panel').forEach(p => p.classList.toggle('hidden', p.id !== targetId));
+    }
+
+    // ─── Analysis Streaming ───────────────────────────────────────────────────
+    async function startAnalysis() {
+      const ticker = $('ticker-input').value.trim().toUpperCase();
+      const scout = $('scout-mode').checked;
+
+      if (!scout && !ticker) {
+        $('ticker-input').focus();
+        $('ticker-input').classList.add('border-red-500');
+        setTimeout(() => $('ticker-input').classList.remove('border-red-500'), 1500);
+        return;
+      }
+
+      if (eventSource) { eventSource.close(); eventSource = null; }
+
+      const btn = $('analyze-btn');
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+
+      const streamPanel = $('stream-panel');
+      const output = $('stream-output');
+      streamPanel.classList.remove('hidden');
+      output.innerHTML = '';
+      $('stream-status-dot').className = 'w-2 h-2 rounded-full bg-emerald-400 pulse-dot';
+      $('stream-status-label').textContent = scout ? 'Scouting S&P 500…' : `Analyzing ${ticker}…`;
+
+      try {
+        const { job_id } = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker, scout }),
+        }).then(r => r.json());
+
+        eventSource = new EventSource(`/api/analyze/${job_id}/stream`);
+
+        eventSource.onmessage = e => {
+          const { line } = JSON.parse(e.data);
+          const div = document.createElement('div');
+          div.className = 'terminal-line';
+          div.style.color = line.startsWith('[ERROR]') ? '#f87171' : line.startsWith('>') ? '#34d399' : '#d1d5db';
+          div.textContent = line;
+          output.appendChild(div);
+          output.scrollTop = output.scrollHeight;
+        };
+
+        eventSource.addEventListener('done', () => {
+          eventSource.close(); eventSource = null;
+          btn.disabled = false;
+          btn.textContent = 'Run Pipeline';
+          $('stream-status-dot').className = 'w-2 h-2 rounded-full bg-gray-600';
+          $('stream-status-label').textContent = 'Completed';
+          // Refresh data
+          loadAccount();
+          loadPositions();
+          loadRecentActivity();
+        });
+
+        eventSource.addEventListener('error', () => {
+          eventSource.close(); eventSource = null;
+          btn.disabled = false;
+          btn.textContent = 'Run Pipeline';
+          $('stream-status-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+          $('stream-status-label').textContent = 'Error';
+        });
+
+        eventSource.onerror = () => {
+          if (eventSource?.readyState === EventSource.CLOSED) {
+            btn.disabled = false;
+            btn.textContent = 'Run Pipeline';
+          }
+        };
+
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Run Pipeline';
+        const div = document.createElement('div');
+        div.className = 'terminal-line';
+        div.style.color = '#f87171';
+        div.textContent = `[ERROR] ${e.message}`;
+        output.appendChild(div);
+      }
+    }
+
+    function clearStream() {
+      $('stream-output').innerHTML = '';
+    }
+
+    // Allow Enter key in ticker input
+    $('ticker-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') startAnalysis();
+    });
+
+    // Scout mode toggles ticker input
+    $('scout-mode').addEventListener('change', e => {
+      $('ticker-input').disabled = e.target.checked;
+      $('ticker-input').classList.toggle('opacity-40', e.target.checked);
+    });
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+    function escHtml(str) {
+      if (str == null) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function refreshAll() {
+      const icon = $('refresh-icon');
+      icon.style.transform = 'rotate(360deg)';
+      icon.style.transition = 'transform 0.6s ease';
+      setTimeout(() => { icon.style.transform = ''; icon.style.transition = ''; }, 700);
+      loadAccount();
+      loadPositions();
+      loadRecentActivity();
+    }
+
+    // ─── Init ─────────────────────────────────────────────────────────────────
+    loadAccount();
+    loadPositions();
+    loadRecentActivity();
+
+    // Auto-refresh every 30 seconds
+    refreshTimer = setInterval(() => {
+      loadAccount();
+      loadPositions();
+      if (activeTab === 'dashboard') loadRecentActivity();
+    }, 30_000);
+  </script>
+</body>
+</html>
