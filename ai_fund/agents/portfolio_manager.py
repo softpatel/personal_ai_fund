@@ -87,13 +87,17 @@ If action is HOLD, qty must be 0.
 
 
 def _parse_decision(text: str) -> dict | None:
-    match = re.search(r"<decision>\s*(\{.*?\})\s*</decision>", text, re.DOTALL)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None
+    for pattern in (
+        r"<decision>\s*(\{.*?\})\s*</decision>",
+        r"```json\s*(\{.*?\})\s*```",
+    ):
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                continue
+    return None
 
 
 def decide(
